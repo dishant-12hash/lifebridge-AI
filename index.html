@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LifeBridge AI - Emergency Response & Disaster Assistance</title>
+  
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="LifeBridge AI is an offline-first emergency responder and disaster navigator helper. Plan routes, find shelters, get medical help, and communicate via offline beacons.">
+  <meta name="theme-color" content="#ff3b30">
+  <link rel="manifest" href="manifest.json">
+  
+  <!-- Leaflet Map CSS CDN (Cached by Service Worker) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
+  <!-- App Main Styles -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- QRious QR Code CDN Library (Cached by Service Worker) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+</head>
+<body>
+
+  <!-- SOS Strobe Mode Fullscreen Overlay -->
+  <section id="strobe-overlay" class="sos-strobe-overlay">
+    <div class="sos-strobe-card">
+      <h2 id="strobe-title" class="sos-strobe-title">SOS ACTIVE</h2>
+      <p class="sos-strobe-desc">
+        Your screen is flashing visual Morse Code (S.O.S) and broadcasting an acoustic rescue locator frequency. Keep this screen facing outwards towards emergency response vehicles or search personnel.
+      </p>
+      <button id="cancel-sos" class="btn btn-sos" style="animation: none; width: 100%; justify-content: center; font-size: 1.1rem; padding: 12px;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="#fff"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>
+        Deactivate SOS Beacon
+      </button>
+    </div>
+  </section>
+
+  <!-- START Triage Diagnostic Overlay -->
+  <section id="triage-overlay" class="sos-strobe-overlay" style="background: rgba(5,6,11,0.95);">
+    <div class="sos-strobe-card" style="border-color: var(--color-accent); max-width: 500px;">
+      <h2 class="logo-text" style="font-size: 1.6rem; margin-bottom: 5px;">S.T.A.R.T. Triage Assistant</h2>
+      <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 20px; text-transform: uppercase; letter-spacing: 0.05em;">Simple Triage & Rapid Treatment</p>
+      
+      <div id="triage-question-container" style="min-height: 120px; display: flex; flex-direction: column; justify-content: center; align-items: center; margin-bottom: 25px;">
+        <p id="triage-question-text" style="font-size: 1.15rem; font-weight: 600; line-height: 1.4; color: #fff;"></p>
+        <div id="triage-result-card" style="display: none; width: 100%; text-align: center; padding: 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); margin-top: 10px;">
+          <h3 id="triage-priority-badge" style="font-size: 1.3rem; margin-bottom: 8px;"></h3>
+          <p id="triage-instructions-text" style="font-size: 0.9rem; line-height: 1.4; color: var(--text-secondary);"></p>
+        </div>
+      </div>
+
+      <div id="triage-buttons" style="display: flex; gap: 15px; justify-content: center; margin-bottom: 15px;">
+        <button id="triage-yes-btn" class="btn btn-primary" style="padding: 10px 30px; font-weight: 700;">YES</button>
+        <button id="triage-no-btn" class="btn" style="padding: 10px 30px; font-weight: 700; border-color: rgba(255,255,255,0.2);">NO</button>
+      </div>
+      
+      <button id="triage-reset-btn" class="btn" style="display: none; width: 100%; justify-content: center; margin-bottom: 10px;">Assess Another Patient</button>
+      <button id="close-triage" class="btn" style="width: 100%; justify-content: center; background: none; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary);">Cancel / Close</button>
+    </div>
+  </section>
+
+  <!-- Application Header -->
+  <header class="glass">
+    <div class="logo-container">
+      <div class="logo-icon">
+        <!-- SVG Life Ring / Cross -->
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm1 14h-2v-3H8v-2h3V8h2v3h3v2h-3v3z"/></svg>
+      </div>
+      <div>
+        <h1 class="logo-text">LifeBridge AI</h1>
+      </div>
+    </div>
+    
+    <div class="system-status">
+      <!-- Battery Meter -->
+      <div class="status-indicator">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="#94a3b8"><path d="M17 5H3c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 12H3V7h14v10zm4-8v6h1.5V9H21z"/></svg>
+        Battery: <span id="battery-level">78%</span>
+      </div>
+      
+      <!-- Network / Offline indicator -->
+      <div class="status-indicator">
+        <div id="status-dot" class="status-dot"></div>
+        <span id="status-text">PWA Cache Ready</span>
+      </div>
+    </div>
+
+    <div class="header-controls">
+      <!-- Mute Switch -->
+      <button id="mute-btn" class="btn">Mute Voice</button>
+      
+      <!-- SOS Broadcast Button -->
+      <button id="sos-btn" class="btn btn-sos">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+        SOS BEACON
+      </button>
+    </div>
+  </header>
+
+  <!-- Core App Workspace -->
+  <main class="app-container">
+    
+    <!-- Sidebar: Controls, Emergency Categories, AI Responder Chat -->
+    <section class="sidebar glass">
+      
+      <!-- Scenario Selector -->
+      <div class="scenario-selector">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="#94a3b8"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+        <select id="scenario-select" aria-label="Select Emergency Sector Scenario" style="width: 55%; flex: none;">
+          <option value="coastal_bay">Coastal Sector</option>
+          <option value="metropolis">Metro Sector</option>
+        </select>
+        <button id="report-hazard-btn" class="btn" style="padding: 6px 8px; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger);">
+          Report Hazard
+        </button>
+      </div>
+
+      <!-- Emergency Category Buttons -->
+      <div class="emergency-grid">
+        <button class="emergency-btn" data-type="flood" aria-label="Select Flood Emergency Category">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+          Flood Safety
+        </button>
+        <button class="emergency-btn" data-type="cyclone" aria-label="Select Cyclone Emergency Category">
+          <svg viewBox="0 0 24 24"><path d="M12 .3a12 12 0 0 0-12 12 12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 .3zm0 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/></svg>
+          Cyclone Prep
+        </button>
+        <button class="emergency-btn" data-type="accident" aria-label="Select Accident Emergency Category">
+          <svg viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 12c-.55 0-1-.45-1-1v-2c0-.55.45-1 1-1s1 .45 1 1v2c0 .55-.45 1-1 1zm1 3h-2v-2h2v2z"/></svg>
+          Accident Rescue
+        </button>
+        <button class="emergency-btn" data-type="medical" aria-label="Select Medical Help Category">
+          <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-1.99.9-1.99 2L3 19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
+          Medical Help
+        </button>
+      </div>
+
+      <!-- LifeBridge AI Conversational Agent -->
+      <div class="chat-panel">
+        <div id="chat-history" class="chat-history">
+          <!-- Dynamically Appended Bubble Messages -->
+        </div>
+
+        <!-- Chat Input Controls -->
+        <div class="chat-input-area">
+          <div id="quick-chips-container" class="chips-container">
+            <!-- Chips dynamically loaded based on active scenario -->
+            <div class="chat-chip">Where is the nearest shelter?</div>
+            <div class="chat-chip">Is Highway 10 safe to drive?</div>
+            <div class="chat-chip">First aid for severe bleeding</div>
+          </div>
+          
+          <form id="chat-form" class="chat-form" action="#">
+            <div class="input-wrapper">
+              <input type="text" id="chat-input" class="chat-input" placeholder="Type emergency query or tap microphone..." autocomplete="off">
+              <button type="button" id="mic-btn" class="mic-btn" aria-label="Trigger voice commands">
+                <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>
+              </button>
+            </div>
+            <button type="submit" class="btn btn-primary" aria-label="Send Query">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="#000"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main View: Interactive Map & Dashboard -->
+    <section class="main-view">
+      <!-- Tabs header -->
+      <div class="view-tabs glass">
+        <button id="tab-map-btn" class="tab-btn active" style="flex: 1; border-radius: 12px; border: none; padding: 10px; cursor: pointer; background: rgba(255,255,255,0.05); color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: 0.85rem;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
+          Situation Map
+        </button>
+        <button id="tab-dash-btn" class="tab-btn" style="flex: 1; border-radius: 12px; border: none; padding: 10px; cursor: pointer; background: none; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: 0.85rem;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+          Resource & Incident Dashboard
+        </button>
+      </div>
+
+      <!-- Map Display Container -->
+      <div id="map-container" style="flex:1; display:flex; flex-direction:column; position:relative; width:100%; height:100%;">
+        <div id="map"></div>
+        
+        <!-- Custom Overlay Info panel on top of the Map -->
+        <div class="map-status-overlay glass">
+          <div class="map-status-header">
+            <h2 class="map-status-title">Sector Navigation</h2>
+            <span style="font-size:0.75rem; background:rgba(52, 199, 89, 0.2); color:#34c759; padding:2px 6px; border-radius:4px;">Live Data</span>
+          </div>
+          <div class="map-status-stat">
+            <span>Active Hazard Level</span>
+            <span id="overlay-hazard-level" style="color:#ef4444; font-weight:700;">Severe Risk (Cyclone Area)</span>
+          </div>
+          <div class="map-status-stat">
+            <span>Local Weather Advisory</span>
+            <span id="overlay-weather-desc">Heavy Rainfall (35mm/hr), Winds: 45kts</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dashboard Panel Container -->
+      <div id="dashboard-panel" style="display:none; flex:1; overflow-y:auto; padding:20px; flex-direction:column; gap:20px; background: rgba(5,6,11,0.2);">
+        
+        <!-- Dashboard Upper Row: Resource summary grids -->
+        <div style="display:grid; grid-template-columns: 1.2fr 1fr 1fr; gap:16px;">
+          <!-- Column A: Shelter Capacities -->
+          <div class="glass" style="background:var(--bg-card); padding:16px; border-radius:12px;">
+            <h3 style="font-size:0.9rem; color:var(--text-secondary); text-transform:uppercase; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;">Active Shelters Status</h3>
+            <div id="dash-shelters-list" style="display:flex; flex-direction:column; gap:10px;">
+              <!-- Dynamic lists inside -->
+            </div>
+          </div>
+
+          <!-- Column B: Hospitals Emergency queue -->
+          <div class="glass" style="background:var(--bg-card); padding:16px; border-radius:12px;">
+            <h3 style="font-size:0.9rem; color:var(--text-secondary); text-transform:uppercase; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;">Emergency Medical Hubs</h3>
+            <div id="dash-hospitals-list" style="display:flex; flex-direction:column; gap:10px;">
+              <!-- Dynamic lists inside -->
+            </div>
+          </div>
+
+          <!-- Column C: Relief Reserves Supply levels -->
+          <div class="glass" style="background:var(--bg-card); padding:16px; border-radius:12px;">
+            <h3 style="font-size:0.9rem; color:var(--text-secondary); text-transform:uppercase; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;">Local Supply Reserves</h3>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <div>
+                <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:4px;">
+                  <span>Emergency Water</span>
+                  <span id="supply-water-text">85%</span>
+                </div>
+                <div style="height:6px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden;">
+                  <div id="supply-water-bar" style="width:85%; height:100%; background:var(--color-accent);"></div>
+                </div>
+              </div>
+              <div>
+                <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:4px;">
+                  <span>Medical Packs</span>
+                  <span id="supply-meds-text">60%</span>
+                </div>
+                <div style="height:6px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden;">
+                  <div id="supply-meds-bar" style="width:60%; height:100%; background:var(--color-success);"></div>
+                </div>
+              </div>
+              <div>
+                <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:4px;">
+                  <span>Dry Food Rations</span>
+                  <span id="supply-food-text">40%</span>
+                </div>
+                <div style="height:6px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden;">
+                  <div id="supply-food-bar" style="width:40%; height:100%; background:var(--color-warning);"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dashboard Lower Row: Dispatch Queue & Survival Checklist -->
+        <div style="display:grid; grid-template-columns: 1.5fr 1fr; gap:16px;">
+          <!-- Column A: Active Incidents Dispatch Queue -->
+          <div class="glass" style="background:var(--bg-card); padding:16px; border-radius:12px;">
+            <h3 style="font-size:0.9rem; color:var(--text-secondary); text-transform:uppercase; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;">Emergency Rescue Queue</h3>
+            <div id="dash-incidents-queue" style="display:flex; flex-direction:column; gap:8px;">
+              <!-- Dynamic Incident Cards -->
+            </div>
+          </div>
+
+          <!-- Column B: Preparedness Survival Checklist -->
+          <div class="glass" style="background:var(--bg-card); padding:16px; border-radius:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px;">
+              <h3 style="font-size:0.9rem; color:var(--text-secondary); text-transform:uppercase;">Preparedness Status</h3>
+              <span id="checklist-pct" style="font-size:0.85rem; font-weight:700; color:var(--color-accent);">20% Ready</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px; font-size:0.8rem;" id="dash-checklist-container">
+              <label style="display:flex; gap:8px; align-items:center; cursor:pointer;">
+                <input type="checkbox" class="checklist-item-cb" checked> Prepare Emergency Water & Food
+              </label>
+              <label style="display:flex; gap:8px; align-items:center; cursor:pointer;">
+                <input type="checkbox" class="checklist-item-cb"> Keep Mobile & Battery Backup Charged
+              </label>
+              <label style="display:flex; gap:8px; align-items:center; cursor:pointer;">
+                <input type="checkbox" class="checklist-item-cb"> Secure Crucial Documents Offline
+              </label>
+              <label style="display:flex; gap:8px; align-items:center; cursor:pointer;">
+                <input type="checkbox" class="checklist-item-cb"> Gather First Aid Kit & Prescriptions
+              </label>
+              <label style="display:flex; gap:8px; align-items:center; cursor:pointer;">
+                <input type="checkbox" class="checklist-item-cb"> Locate Nearest Sector Rescue Shelter
+              </label>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- Bottom Drawer: Offline QR check-in, Breathing guide, Power & Distress Radar -->
+  <footer class="bottom-drawer glass">
+    
+    <!-- Drawer Column 1: Offline PWA QR Broadcast & Mesh Sync -->
+    <div class="drawer-section" style="grid-column: span 1;">
+      <h3>
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"/></svg>
+        P2P Offline Mesh Check-in
+      </h3>
+      <div class="drawer-content" style="gap: 8px;">
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <div class="qr-container" style="margin: 0; width: 90px; height: 90px; flex-shrink: 0;">
+            <canvas id="qr-canvas"></canvas>
+          </div>
+          <div class="qr-info-form" style="flex: 1;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label for="qr-name">Name:</label>
+              <input type="text" id="qr-name" value="Jane Doe" style="width:80px; padding: 2px;">
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+              <label for="qr-blood">Blood:</label>
+              <select id="qr-blood" aria-label="Select Blood Group" style="width:80px; padding: 2px;">
+                <option value="O+">O+</option>
+                <option value="A+">A+</option>
+                <option value="B+">B+</option>
+                <option value="O-">O-</option>
+              </select>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+              <label for="qr-status">Status:</label>
+              <select id="qr-status" aria-label="Select Current Emergency Status" style="width:80px; padding: 2px;">
+                <option value="SAFE">SAFE</option>
+                <option value="MED_REQ">NEED HELP</option>
+                <option value="TRAPPED">TRAPPED</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <!-- P2P Import Data Row -->
+        <div style="display: flex; gap: 6px; margin-top: 4px;">
+          <input type="text" id="p2p-sync-input" placeholder="Paste Scanned Peer Code..." style="flex:1; background: rgba(255,255,255,0.03); border:1px solid var(--border-light); border-radius:4px; padding: 4px; font-size: 0.75rem; color:#fff;">
+          <button id="p2p-sync-btn" class="btn" style="padding: 4px 8px; font-size: 0.75rem; background: var(--color-accent); color:#000; font-weight:600; border:none; border-radius:4px;">Sync</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drawer Column 2: Crisis Calmer & START Triage -->
+    <div id="breathing-card" class="drawer-section">
+      <h3>
+        <svg viewBox="0 0 24 24"><path d="M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10zm1-10h3l-4 4-4-4h3V8h2v4z"/></svg>
+        Crisis & Diagnostic Calmer
+      </h3>
+      <div class="drawer-content" style="flex-direction: row; gap: 10px; align-items: center; justify-content: space-between;">
+        <div class="breathing-card" style="flex: 1; border-right: 1px solid var(--border-light); padding-right: 10px; height: 100%; justify-content: center;">
+          <div class="breathing-circle-outer" style="width: 80px; height: 80px;">
+            <div class="breathing-circle" style="width: 40px; height: 40px;">
+              <span id="breathing-text" class="breathing-text" style="font-size: 0.7rem;">Breath</span>
+            </div>
+          </div>
+          <span id="breathing-subtext" class="breathing-subtext" style="font-size:0.75rem; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100px; margin-top: 4px;">Ready</span>
+          <button id="start-breathing-btn" class="btn" style="padding: 4px 8px; font-size: 0.7rem; margin-top: 4px;">Calm Breath</button>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; height: 100%;">
+          <p style="font-size: 0.75rem; text-align: center; color: var(--text-secondary);">Assess victims using military triage protocols.</p>
+          <button id="start-triage-btn" class="btn btn-sos" style="padding: 8px 12px; font-size: 0.8rem; border-radius: 6px; width: 100%; justify-content: center;">
+            START Triage Tool
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drawer Column 3: Distress Sound Radar & Battery -->
+    <div class="drawer-section">
+      <h3>
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+        Rescue Radar & Power
+      </h3>
+      <div class="drawer-content" style="gap: 8px;">
+        <!-- Canvas Visualizer -->
+        <div style="position: relative; height: 60px; background: rgba(0,0,0,0.4); border: 1px solid var(--border-light); border-radius: 6px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+          <canvas id="radar-canvas" style="position: absolute; inset:0; width:100%; height:100%; z-index:1; pointer-events:none;"></canvas>
+          <span id="radar-status-label" style="font-size: 0.75rem; font-family: monospace; color: var(--text-dim); z-index: 2; pointer-events:none;">Radar Off</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="toggle-radar-btn" class="btn" style="flex: 1; padding: 6px 8px; font-size: 0.75rem; font-weight: 600; justify-content: center;">
+            Activate Sound Radar
+          </button>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px;">
+          <div class="battery-item" style="border:none; padding:0; flex:1; display:flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span style="font-size:0.75rem;">Extreme Battery Saver</span>
+            <input type="checkbox" id="battery-saver-toggle" aria-label="Toggle Extreme Battery Saver Mode">
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </footer>
+
+  <!-- Leaflet Map JS CDN (Cached by Service Worker) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <!-- App JS orchestrator script -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
